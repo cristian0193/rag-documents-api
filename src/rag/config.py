@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
 
 
-settings = Settings()
-
-
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# Convenience alias — uses the cached instance
+settings = get_settings()

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 
 # Import models so Alembic can detect schema changes
-from rag.db import models  # noqa: F401 - registers ORM metadata
+from rag.db.models import Base  # noqa: F401 - registers ORM metadata
 
 # Alembic Config object
 config = context.config
@@ -21,9 +21,7 @@ if database_url:
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Use the models' MetaData for autogenerate support
-# TODO: replace with actual Base.metadata once models are defined (Phase 2)
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
