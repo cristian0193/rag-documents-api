@@ -38,6 +38,16 @@ class DocumentRepository:
         )
         await self.session.execute(stmt)
 
+    async def update_ready(self, document_id: uuid.UUID, total_chunks: int) -> None:
+        """Update document to ready status with chunk count atomically."""
+        stmt = (
+            update(Document)
+            .where(Document.id == document_id)
+            .values(status="ready", total_chunks=total_chunks)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.session.execute(stmt)
+
     async def update_chunk_count(self, document_id: uuid.UUID, total_chunks: int) -> None:
         stmt = (
             update(Document)
