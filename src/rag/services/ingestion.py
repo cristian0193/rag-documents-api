@@ -1,6 +1,7 @@
 """Document ingestion orchestration service."""
 from pathlib import Path
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rag.config import settings
@@ -10,6 +11,8 @@ from rag.core.extractor import extract_text
 from rag.db.chroma import ChromaClient
 from rag.db.models import Document
 from rag.db.repositories import ChunkRepository, DocumentRepository
+
+logger = structlog.get_logger(__name__)
 
 
 class IngestionService:
@@ -43,6 +46,8 @@ class IngestionService:
         file_type = Path(filename).suffix.lstrip(".").lower()
         file_size = len(file_bytes)
 
+        logger.info("ingestion.started", filename=filename, file_size=len(file_bytes))
+
         doc_repo = DocumentRepository(db)
         chunk_repo = ChunkRepository(db)
 
@@ -59,6 +64,7 @@ class IngestionService:
         try:
             # Step 2: Extract text from file
             text = extract_text(file_bytes, filename)
+            logger.info("ingestion.extracted", filename=filename, text_length=len(text))
 
             # Step 3: Chunk the text
             chunks = chunk_text(
@@ -66,9 +72,11 @@ class IngestionService:
                 chunk_size=settings.chunk_size,
                 chunk_overlap=settings.chunk_overlap,
             )
+            logger.info("ingestion.chunked", filename=filename, chunk_count=len(chunks))
 
             # Step 4: Generate embeddings for all chunks
             embeddings = await self.embedder.embed(chunks)
+            logger.info("ingestion.embedded", filename=filename, vector_count=len(embeddings))
 
             # Step 5: Store embeddings + documents in ChromaDB
             chroma_ids = [f"{document_id}_{i}" for i in range(len(chunks))]
@@ -87,6 +95,7 @@ class IngestionService:
                 metadatas=metadatas,
             )
             chroma_ids_written = chroma_ids
+            logger.info("ingestion.stored_chroma", document_id=str(document_id), chunk_count=len(chunks))
 
             # Step 6: Store chunk metadata in PostgreSQL
             chunks_data = [
@@ -107,9 +116,11 @@ class IngestionService:
 
             # Step 8: Return the updated Document
             document = await doc_repo.get_by_id(document_id)
+            logger.info("ingestion.complete", document_id=str(document_id), filename=filename, total_chunks=len(chunks))
             return document
 
         except Exception as e:
+            logger.error("ingestion.failed", filename=filename, error=str(e))
             if chroma_ids_written:
                 try:
                     await self.chroma.delete_by_ids(chroma_ids_written)

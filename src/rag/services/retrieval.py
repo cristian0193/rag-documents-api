@@ -1,6 +1,7 @@
 """RAG retrieval and answer generation service."""
 import uuid
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rag.core.embedder import Embedder
@@ -8,6 +9,8 @@ from rag.core.llm import OllamaClient
 from rag.db.chroma import ChromaClient
 from rag.db.repositories import DocumentRepository
 from rag.schemas import QueryResponse, SourceChunk
+
+logger = structlog.get_logger(__name__)
 
 
 class RetrievalService:
@@ -36,6 +39,8 @@ class RetrievalService:
         5. Generate answer via LLM
         6. Return QueryResponse with answer and sources (with similarity scores)
         """
+        logger.info("retrieval.query_received", question_length=len(question), top_k=top_k)
+
         # Step 1: Embed the question
         query_embedding = await self.embedder.embed_query(question)
 
@@ -53,6 +58,8 @@ class RetrievalService:
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         distances = results.get("distances", [[]])[0]
+
+        logger.info("retrieval.chroma_results", result_count=len(ids))
 
         # If no chunks found, return early
         if not ids:
@@ -77,6 +84,7 @@ class RetrievalService:
 
         # Step 5: Generate answer via LLM
         answer = await self.llm.generate(prompt)
+        logger.info("retrieval.answer_generated", answer_length=len(answer))
 
         # Step 6: Build sources with similarity scores (score = 1 - distance)
         sources = []

@@ -1,6 +1,7 @@
 """Document CRUD endpoints."""
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,8 @@ from rag.db.repositories import DocumentRepository, ChunkRepository
 from rag.schemas import DocumentResponse, DocumentDetailResponse, ChunkResponse
 from rag.services.ingestion import IngestionService
 from rag.core.extractor import UnsupportedFileTypeError
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -24,6 +27,7 @@ async def upload_document(
     """Upload a PDF or TXT document for ingestion."""
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must have a filename.")
+    logger.info("api.upload_requested", filename=file.filename)
     try:
         MAX_BYTES = settings.max_upload_size_mb * 1024 * 1024
         file_bytes = await file.read(MAX_BYTES + 1)
@@ -87,6 +91,7 @@ async def delete_document(
     chroma: ChromaClient = Depends(get_chroma),
 ) -> None:
     """Delete a document and all its chunks from both DBs."""
+    logger.info("api.delete_requested", document_id=str(document_id))
     doc_repo = DocumentRepository(db)
     chunk_repo = ChunkRepository(db)
 

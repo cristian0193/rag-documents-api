@@ -1,5 +1,8 @@
 """Ollama LLM client for text generation."""
 import httpx
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class OllamaError(Exception):
@@ -26,6 +29,7 @@ class OllamaClient:
         Raises:
             OllamaError: If Ollama is unavailable or returns an error
         """
+        logger.debug("llm.generating", model=self.model, prompt_length=len(prompt))
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -46,7 +50,9 @@ class OllamaClient:
             )
 
         try:
-            return response.json()["response"]
+            response_text = response.json()["response"]
+            logger.debug("llm.generated", response_length=len(response_text))
+            return response_text
         except (KeyError, ValueError) as e:
             raise OllamaError(f"Unexpected response format from Ollama: {response.text[:200]}") from e
 
@@ -56,7 +62,8 @@ class OllamaClient:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{self.base_url}/api/tags")
                 return response.status_code == 200
-        except (httpx.TransportError, httpx.TimeoutException, httpx.ConnectError):
+        except (httpx.TransportError, httpx.TimeoutException, httpx.ConnectError) as e:
+            logger.warning("llm.unavailable", error=str(e))
             return False
 
     def build_rag_prompt(self, question: str, context_chunks: list[str]) -> str:

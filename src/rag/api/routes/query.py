@@ -1,4 +1,5 @@
 """RAG query endpoint."""
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +7,8 @@ from rag.api.deps import get_db, get_retrieval_service
 from rag.core.llm import OllamaError
 from rag.schemas import QueryRequest, QueryResponse
 from rag.services.retrieval import RetrievalService
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -17,6 +20,7 @@ async def query_documents(
     service: RetrievalService = Depends(get_retrieval_service),
 ) -> QueryResponse:
     """Query documents with a natural language question."""
+    logger.info("api.query_received", question_length=len(request.question))
     try:
         return await service.query(request.question, request.top_k, db)
     except OllamaError as e:
