@@ -48,6 +48,42 @@ class TestExtractPdf:
         assert "Hello" in result
 
 
+class TestExtractDocx:
+    def test_extract_docx_returns_text(self, sample_docx_bytes):
+        """A minimal .docx returns the paragraph text."""
+        result = extract_text(sample_docx_bytes, "doc.docx")
+        assert "Hello from DOCX" in result
+
+    def test_extract_docx_strips_whitespace(self, sample_docx_bytes):
+        """Result has no leading/trailing whitespace."""
+        result = extract_text(sample_docx_bytes, "doc.docx")
+        assert result == result.strip()
+
+
+class TestExtractXlsx:
+    def test_extract_xlsx_contains_sheet_name(self, sample_xlsx_bytes):
+        """Sheet name appears as a header line."""
+        result = extract_text(sample_xlsx_bytes, "wb.xlsx")
+        assert "Sheet: Sheet1" in result
+
+    def test_extract_xlsx_contains_cell_value(self, sample_xlsx_bytes):
+        """Cell value is present in the extracted text."""
+        result = extract_text(sample_xlsx_bytes, "wb.xlsx")
+        assert "Hello from XLSX" in result
+
+
+class TestExtractPptx:
+    def test_extract_pptx_contains_slide_marker(self, sample_pptx_bytes):
+        """Each slide is prefixed with 'Slide N:'."""
+        result = extract_text(sample_pptx_bytes, "pres.pptx")
+        assert "Slide 1:" in result
+
+    def test_extract_pptx_contains_text(self, sample_pptx_bytes):
+        """Text from the slide shapes is extracted."""
+        result = extract_text(sample_pptx_bytes, "pres.pptx")
+        assert "Hello from PPTX" in result
+
+
 class TestUnsupportedFileType:
     def test_unsupported_file_type_exe(self):
         """A .exe extension raises UnsupportedFileTypeError."""
@@ -63,3 +99,18 @@ class TestUnsupportedFileType:
         """A file with no recognised extension raises UnsupportedFileTypeError."""
         with pytest.raises(UnsupportedFileTypeError):
             extract_text(b"some data", "noextension")
+
+    def test_legacy_doc_gives_helpful_message(self):
+        """A .doc file raises UnsupportedFileTypeError with a conversion hint."""
+        with pytest.raises(UnsupportedFileTypeError, match="convert to .docx"):
+            extract_text(b"\xd0\xcf", "file.doc")
+
+    def test_legacy_xls_gives_helpful_message(self):
+        """A .xls file raises UnsupportedFileTypeError with a conversion hint."""
+        with pytest.raises(UnsupportedFileTypeError, match="convert to .xlsx"):
+            extract_text(b"\xd0\xcf", "file.xls")
+
+    def test_legacy_ppt_gives_helpful_message(self):
+        """A .ppt file raises UnsupportedFileTypeError with a conversion hint."""
+        with pytest.raises(UnsupportedFileTypeError, match="convert to .pptx"):
+            extract_text(b"\xd0\xcf", "file.ppt")

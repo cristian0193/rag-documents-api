@@ -5,10 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from rag.main import app
-from rag.db.postgres import get_db
-from rag.api.deps import get_chroma
-
 # ── SQLite in-memory database ──────────────────────────────────────────────
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -88,6 +84,48 @@ def mock_llm():
 # ── Sample files ────────────────────────────────────────────────────────────
 
 @pytest.fixture
+def sample_docx_bytes() -> bytes:
+    """Minimal .docx with one paragraph ('Hello from DOCX')."""
+    import io
+    import docx as python_docx
+    doc = python_docx.Document()
+    doc.add_paragraph("Hello from DOCX")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def sample_xlsx_bytes() -> bytes:
+    """Minimal .xlsx with Sheet1 containing 'Hello from XLSX'."""
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws["A1"] = "Hello from XLSX"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def sample_pptx_bytes() -> bytes:
+    """Minimal .pptx with one slide containing 'Hello from PPTX'."""
+    import io
+    from pptx import Presentation
+    from pptx.util import Inches
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[5]  # blank layout
+    slide = prs.slides.add_slide(slide_layout)
+    txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+    txBox.text_frame.text = "Hello from PPTX"
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
 def sample_txt_bytes() -> bytes:
     return (
         b"This is a sample text document for testing. "
@@ -144,6 +182,9 @@ startxref
 @pytest.fixture
 async def client(db_session, mock_chroma, mock_embedder, mock_llm):
     """AsyncClient with all external services mocked and DB backed by SQLite."""
+    from rag.main import app
+    from rag.db.postgres import get_db
+    from rag.api.deps import get_chroma
     from rag.services.ingestion import IngestionService
     from rag.services.retrieval import RetrievalService
 

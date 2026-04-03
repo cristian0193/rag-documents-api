@@ -15,6 +15,7 @@ Portfolio project demonstrating a production-grade RAG (Retrieval-Augmented Gene
 | Relational DB | PostgreSQL 16 + SQLAlchemy 2.0 async |
 | Migrations | Alembic (async) |
 | PDF Processing | pypdf |
+| Office Processing | python-docx, openpyxl, python-pptx |
 | Chunking | LangChain RecursiveCharacterTextSplitter |
 | Config | pydantic-settings |
 | Logging | structlog (JSON in prod, console in DEBUG) |
@@ -34,7 +35,7 @@ src/rag/
 │       ├── documents.py # Upload, list, get, delete endpoints
 │       └── query.py     # POST /api/v1/query
 ├── core/
-│   ├── extractor.py     # PDF/TXT → raw text
+│   ├── extractor.py     # PDF/TXT/DOCX/XLSX/PPTX → raw text (registry pattern)
 │   ├── chunker.py       # Text → overlapping chunks
 │   ├── embedder.py      # Async sentence-transformers wrapper
 │   └── llm.py           # Ollama HTTP client + RAG prompt builder

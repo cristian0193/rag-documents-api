@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rag.config import settings
 from rag.core.chunker import chunk_text
 from rag.core.embedder import Embedder
-from rag.core.extractor import extract_text
+from rag.core.extractor import extract_text, validate_file_type
 from rag.db.chroma import ChromaClient
 from rag.db.models import Document
 from rag.db.repositories import ChunkRepository, DocumentRepository
@@ -43,6 +43,8 @@ class IngestionService:
 
         On any error: update document status to 'error' with error message, then re-raise
         """
+        validate_file_type(filename)  # raises UnsupportedFileTypeError before any DB writes
+
         file_type = Path(filename).suffix.lstrip(".").lower()
         file_size = len(file_bytes)
 

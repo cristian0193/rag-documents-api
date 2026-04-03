@@ -28,7 +28,7 @@ graph TD
     FastAPI["FastAPI App\nPOST /upload · POST /query"]
     Ingestion["IngestionService"]
     Retrieval["RetrievalService"]
-    Extractor["Extractor\npypdf / TXT"]
+    Extractor["Extractor\npypdf / python-docx / openpyxl / python-pptx"]
     Chunker["Chunker\nLangChain"]
     Embedder["Embedder\nall-MiniLM-L6-v2"]
     ChromaDB["ChromaDB\nVector Store"]
@@ -308,17 +308,30 @@ Servicios atómicos, sin lógica de negocio, sin estado propio.
 ```
 file_bytes + filename → str
 
-PDF path:
-  pypdf.PdfReader(BytesIO(bytes))
-    → [page.extract_text() for page in reader.pages]
-    → "\n".join(texts)
-    → raise ValueError si texto vacío (PDF de imágenes)
-    → raise ValueError si PdfReadError (encriptado/corrupto)
+Dispatch vía registro de extensiones (_EXTRACTORS dict):
 
-TXT path:
-  bytes.decode("utf-8")  → fallback → bytes.decode("latin-1")
+.txt  → bytes.decode("utf-8")  → fallback → bytes.decode("latin-1")
 
-Post-processing:
+.pdf  → pypdf.PdfReader(BytesIO(bytes))
+          → [page.extract_text() for page in reader.pages]
+          → raise ValueError si texto vacío (PDF de imágenes)
+          → raise ValueError si PdfReadError (encriptado/corrupto)
+
+.docx → python-docx: [p.text for p in doc.paragraphs]
+          → raise ValueError si sin párrafos
+
+.xlsx → openpyxl: por cada sheet → "Sheet: <nombre>" + valores de celdas
+          → raise ValueError si workbook vacío
+
+.pptx → python-pptx: por cada slide → "Slide N:" + texto de shapes
+          → raise ValueError si sin texto
+
+Formatos legacy rechazados con hint:
+  .doc → UnsupportedFileTypeError("Please convert to .docx")
+  .xls → UnsupportedFileTypeError("Please convert to .xlsx")
+  .ppt → UnsupportedFileTypeError("Please convert to .pptx")
+
+Post-processing (todos los formatos):
   re.sub(r"\n{3,}", "\n\n", text).strip()
 ```
 
@@ -577,7 +590,7 @@ CREATE TABLE documents (
     created_at   TIMESTAMPTZ  DEFAULT NOW(),
     updated_at   TIMESTAMPTZ  DEFAULT NOW(),
     
-    CONSTRAINT ck_document_file_type CHECK (file_type IN ('pdf', 'txt')),
+    CONSTRAINT ck_document_file_type CHECK (file_type IN ('pdf', 'txt', 'docx', 'xlsx', 'pptx')),
     CONSTRAINT ck_document_status   CHECK (status IN ('processing', 'ready', 'error'))
 );
 

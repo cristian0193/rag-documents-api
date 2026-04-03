@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
-        CheckConstraint("file_type IN ('pdf', 'txt')", name="ck_document_file_type"),
+        CheckConstraint("file_type IN ('pdf', 'txt', 'docx', 'xlsx', 'pptx')", name="ck_document_file_type"),
         CheckConstraint("status IN ('processing', 'ready', 'error')", name="ck_document_status"),
     )
 

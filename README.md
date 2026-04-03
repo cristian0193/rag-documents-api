@@ -45,6 +45,7 @@ graph TD
 | Vector store     | ChromaDB                     | Simple embedded vector DB with cosine similarity search     |
 | Relational DB    | PostgreSQL + SQLAlchemy 2.x  | Durable metadata store with async ORM support               |
 | PDF parsing      | pypdf                        | Pure-Python PDF extraction, no system dependencies          |
+| Office parsing   | python-docx / openpyxl / python-pptx | Word, Excel, PowerPoint extraction (Open XML only) |
 | Text splitting   | LangChain text splitters     | Battle-tested recursive character splitter                  |
 | Logging          | structlog                    | Structured JSON logs in production, colored output in dev   |
 
@@ -101,7 +102,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 
 | Method | Path                                | Description                                    |
 |--------|-------------------------------------|------------------------------------------------|
-| POST   | `/api/v1/documents/upload`          | Upload a PDF or TXT file for ingestion         |
+| POST   | `/api/v1/documents/upload`          | Upload a PDF, TXT, DOCX, XLSX, or PPTX file    |
 | GET    | `/api/v1/documents/`                | List all ingested documents                    |
 | GET    | `/api/v1/documents/{document_id}`   | Get document details with chunk metadata       |
 | DELETE | `/api/v1/documents/{document_id}`   | Delete document and all its vectors            |
@@ -142,7 +143,7 @@ src/rag/
 │       ├── documents.py  # Upload, list, get, delete document endpoints
 │       └── query.py      # Natural language query endpoint
 ├── core/
-│   ├── extractor.py      # PDF and TXT text extraction
+│   ├── extractor.py      # PDF, TXT, DOCX, XLSX, PPTX text extraction (registry pattern)
 │   ├── chunker.py        # Overlapping window text splitting
 │   ├── embedder.py       # sentence-transformers async wrapper
 │   └── llm.py            # Ollama HTTP client and prompt builder
