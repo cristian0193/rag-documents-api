@@ -7,9 +7,9 @@ RUN adduser --disabled-password --gecos "" appuser
 RUN pip install --no-cache-dir uv==0.5.29
 
 COPY pyproject.toml .
-RUN uv pip install --system --no-cache .
-
 COPY src/ src/
+
+RUN uv pip install --system --no-cache .
 
 USER appuser
 
