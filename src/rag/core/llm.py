@@ -74,8 +74,9 @@ class OllamaClient:
         and the user's question.
         """
         header = (
-            "You are a helpful assistant. Answer the question based on the provided context.\n"
-            'If the answer is not in the context, say "I don\'t have enough information to answer this question."\n'
+            "You are a helpful assistant. Answer the question based ONLY on the provided context. "
+            "Answer in the same language as the question. "
+            "If the context does not contain enough information, say so briefly and summarize what the context does cover.\n"
             "\n"
             "Context:\n"
         )
