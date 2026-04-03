@@ -7,6 +7,8 @@ RUN adduser --disabled-password --gecos "" appuser
 RUN pip install --no-cache-dir uv==0.5.29
 
 COPY pyproject.toml .
+COPY alembic.ini .
+COPY alembic/ alembic/
 COPY src/ src/
 
 RUN uv pip install --system --no-cache .
