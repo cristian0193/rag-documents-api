@@ -34,39 +34,6 @@ graph TD
     Retrieval --> Ollama
 ```
 
-### Ingestion pipeline
-
-```mermaid
-flowchart TD
-    A["POST /upload\nPDF or TXT file"] --> B{Validation}
-    B -->|Invalid filename| E1["HTTP 400"]
-    B -->|Size > 50 MB| E2["HTTP 413"]
-    B -->|OK| P1["[1] Create document record\nstatus = processing"]
-    P1 --> P2["[2] Extract text\npypdf · UTF-8 decode"]
-    P2 --> P3["[3] Chunk text\n512 chars · 50 overlap"]
-    P3 --> P4["[4] Generate embeddings\nall-MiniLM-L6-v2 → 384 dims"]
-    P4 --> P5["[5] Store vectors\nChromaDB upsert"]
-    P5 --> P6["[6] Store metadata\nPostgreSQL — chunks batch insert"]
-    P6 --> P7["[7] Mark ready\nstatus = ready · total_chunks = N"]
-    P7 --> P8["HTTP 201 — Document ready"]
-    P2 -->|PDF empty / encrypted| ERR["Cleanup Chroma vectors\nstatus = error · HTTP 500"]
-    P5 -->|ChromaDB error| ERR
-    P6 -->|Postgres error| ERR
-```
-
-### Query flow
-
-```mermaid
-flowchart TD
-    A["POST /query\n{question, top_k}"] --> B["[1] Embed question\n384-dim vector"]
-    B --> C["[2] ChromaDB similarity search\nHNSW cosine · top-k results"]
-    C --> D["[3] Score chunks\nscore = 1 − cosine_distance"]
-    D --> E["[4] Fetch document metadata\nPostgreSQL"]
-    E --> F["[5] Build RAG prompt\nSystem + Context chunks + Question"]
-    F --> G["[6] Generate answer\nOllama llama3.2:3b · timeout 120s"]
-    G -->|Ollama unreachable| ERR["HTTP 503"]
-    G --> H["HTTP 200\n{answer, sources with scores}"]
-```
 
 ## Tech Stack
 
