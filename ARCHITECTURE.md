@@ -22,31 +22,32 @@
 
 RAG Simple implementa el patrón **Retrieval-Augmented Generation** en su forma más pura: sin reranking, sin búsqueda híbrida, sin caché. Solo el pipeline fundamental.
 
-```
-                        ┌─────────────────────────────────┐
-                        │           Cliente HTTP           │
-                        └────────────┬────────────────────┘
-                                     │
-                        ┌────────────▼────────────────────┐
-                        │        FastAPI App               │
-                        │  POST /upload   POST /query      │
-                        └──────┬──────────────┬───────────┘
-                               │              │
-               ┌───────────────▼──┐    ┌──────▼───────────────┐
-               │ IngestionService │    │  RetrievalService     │
-               └───────┬──────────┘    └──────┬───────────────┘
-                       │                      │
-         ┌─────────────┼──────────┐   ┌───────┼──────────────┐
-         │             │          │   │       │              │
-    ┌────▼───┐  ┌──────▼───┐  ┌──▼───▼──┐ ┌──▼──────┐  ┌───▼───┐
-    │Extractor│ │ Chunker  │  │Embedder │ │ChromaDB │  │Ollama │
-    │(pypdf) │ │(LangChain)│  │(ST MiniLM│ │(Vector) │  │(LLM)  │
-    └────────┘ └──────────┘  └─────────┘ └────┬────┘  └───────┘
-                                               │
-                                    ┌──────────▼──────┐
-                                    │   PostgreSQL     │
-                                    │ documents/chunks │
-                                    └─────────────────┘
+```mermaid
+graph TD
+    Client["Cliente HTTP"]
+    FastAPI["FastAPI App\nPOST /upload · POST /query"]
+    Ingestion["IngestionService"]
+    Retrieval["RetrievalService"]
+    Extractor["Extractor\npypdf / TXT"]
+    Chunker["Chunker\nLangChain"]
+    Embedder["Embedder\nall-MiniLM-L6-v2"]
+    ChromaDB["ChromaDB\nVector Store"]
+    Ollama["Ollama\nllama3.2:3b"]
+    PostgreSQL["PostgreSQL\ndocuments + chunks"]
+
+    Client -->|POST /upload| FastAPI
+    Client -->|POST /query| FastAPI
+    FastAPI --> Ingestion
+    FastAPI --> Retrieval
+    Ingestion --> Extractor
+    Ingestion --> Chunker
+    Ingestion --> Embedder
+    Ingestion --> ChromaDB
+    Ingestion --> PostgreSQL
+    Retrieval --> Embedder
+    Retrieval --> ChromaDB
+    Retrieval --> PostgreSQL
+    Retrieval --> Ollama
 ```
 
 ---
@@ -89,74 +90,33 @@ src/rag/
 
 ### Secuencia completa
 
-```
-Cliente
-  │
-  │  POST /api/v1/documents/upload
-  │  Content-Type: multipart/form-data
-  │  Body: file=<bytes>
-  │
-  ▼
-documents.py (route handler)
-  │
-  ├─ Validación: filename != None
-  ├─ Validación: len(bytes) ≤ 50MB
-  ├─ HTTP 400/413 si falla validación
-  │
-  ▼
-IngestionService.ingest(file_bytes, filename, db_session)
-  │
-  ├─ [PASO 1] DocumentRepository.create(filename, file_type, file_size)
-  │           → INSERT INTO documents (status='processing')
-  │           → Obtiene document.id (UUID)
-  │
-  ├─ [PASO 2] extract_text(file_bytes, filename)
-  │           → Si .pdf: pypdf.PdfReader(BytesIO) → page.extract_text() por página
-  │           → Si .txt: decode UTF-8 → fallback latin-1
-  │           → re.sub(r"\n{3,}", "\n\n") — normaliza espacios
-  │           → Raises ValueError si PDF vacío/encriptado
-  │
-  ├─ [PASO 3] chunk_text(text, chunk_size=512, chunk_overlap=50)
-  │           → RecursiveCharacterTextSplitter
-  │           → Separadores: ["\n\n", "\n", " ", ""]
-  │           → Filtra chunks vacíos
-  │           → Retorna list[str]
-  │
-  ├─ [PASO 4] embedder.embed(chunks)  [async → asyncio.to_thread]
-  │           → SentenceTransformer.encode(chunks, convert_to_numpy=True)
-  │           → .tolist() → list[list[float]] shape: (N, 384)
-  │
-  ├─ [PASO 5] chroma.upsert(ids, embeddings, documents, metadatas)
-  │           → IDs: ["{document_id}_0", "{document_id}_1", ...]
-  │           → metadatas: [{document_id, filename, chunk_index}, ...]
-  │           → asyncio.to_thread(collection.upsert, ...)
-  │
-  ├─ [PASO 6] chunk_repo.create_batch(chunks_data)
-  │           → INSERT INTO chunks (document_id, chunk_index, text, token_count, chroma_id)
-  │           → Batch insert + flush (sin N+1 queries)
-  │
-  ├─ [PASO 7] doc_repo.update_ready(document_id, total_chunks=N)
-  │           → UPDATE documents SET status='ready', total_chunks=N
-  │           → Una sola query (atómica)
-  │
-  ├─ [PASO 8] return Document (ORM object)
-  │
-  └─ [ERROR] Si cualquier paso falla:
-             ├─ Si chroma ya fue escrito: chroma.delete_by_ids(chroma_ids) [best-effort]
-             ├─ doc_repo.update_status(status='error', error_msg=str(e))
-             └─ re-raise exception → HTTP 500
+```mermaid
+flowchart TD
+    A["POST /api/v1/documents/upload\nmultipart/form-data · file=bytes"] --> B{Validación}
+    B -->|filename == None| E1["HTTP 400 Bad Request"]
+    B -->|size > 50 MB| E2["HTTP 413 Too Large"]
+    B -->|OK| P1["[1] DocumentRepository.create\nINSERT status='processing'"]
+    P1 --> P2["[2] extract_text(bytes, filename)\npypdf.PdfReader / UTF-8 decode + fallback latin-1\nre.sub normaliza saltos de línea"]
+    P2 -->|PDF vacío o encriptado| ERR
+    P2 --> P3["[3] chunk_text(text)\nRecursiveCharacterTextSplitter\nchunk_size=512 · overlap=50"]
+    P3 --> P4["[4] embedder.embed(chunks)\nasyncio.to_thread → ST MiniLM\nshape: N × 384"]
+    P4 --> P5["[5] chroma.upsert(ids, embeddings, docs, metas)\nasyncio.to_thread\nIDs: '{doc_id}_{chunk_index}'"]
+    P5 -->|ChromaDB error| ERR
+    P5 --> P6["[6] chunk_repo.create_batch\nINSERT chunks — batch flush"]
+    P6 -->|Postgres error| ERR
+    P6 --> P7["[7] doc_repo.update_ready(id, total_chunks)\nUPDATE status='ready' — atómico"]
+    P7 --> P8["[8] Return Document → HTTP 201"]
+
+    ERR["chroma.delete_by_ids best-effort\ndoc_repo.update_status='error'\nre-raise → HTTP 500"]
 ```
 
 ### Diagrama de estado del documento
 
-```
-[CREADO] status='processing'
-         │
-         │ extract + chunk + embed + store
-         │
-         ├─── éxito ──► status='ready'
-         │
-         └─── error ──► status='error', error_msg=<detalle>
+```mermaid
+stateDiagram-v2
+    [*] --> processing : DocumentRepository.create
+    processing --> ready : extract + chunk + embed + store exitoso
+    processing --> error : cualquier paso falla\nerror_msg = detalle de la excepción
 ```
 
 ---
@@ -165,51 +125,21 @@ IngestionService.ingest(file_bytes, filename, db_session)
 
 ### Secuencia completa
 
-```
-Cliente
-  │
-  │  POST /api/v1/query
-  │  Body: {"question": "...", "top_k": 8}
-  │
-  ▼
-query.py (route handler)
-  │
-  ├─ Validación Pydantic: question min=1/max=1000 chars, top_k 1-20
-  │
-  ▼
-RetrievalService.query(question, top_k, db_session)
-  │
-  ├─ [PASO 1] embedder.embed_query(question)  [async]
-  │           → SentenceTransformer.encode([question])
-  │           → Retorna vector: list[float] shape: (384,)
-  │
-  ├─ [PASO 2] chroma.query(query_embedding, n_results=min(top_k, collection_size))
-  │           → Búsqueda HNSW (cosine similarity)
-  │           → Retorna: {ids, documents, metadatas, distances}
-  │           → Guard: si collection vacía → "No documents ingested yet"
-  │
-  ├─ [PASO 3] Parsear resultados ChromaDB
-  │           → ids[0], documents[0], metadatas[0], distances[0]
-  │           → score = 1.0 - distance  (cosine distance → similarity)
-  │
-  ├─ [PASO 4] Para cada document_id único en metadatas:
-  │           → doc_repo.get_by_id(uuid) → obtener filename
-  │           → Fallback: meta.get("filename") si doc fue borrado
-  │
-  ├─ [PASO 5] llm.build_rag_prompt(question, context_chunks)
-  │           → System: "Answer in the same language as the question"
-  │           → Context: chunks separados por ---
-  │           → Footer: "Question: {question}\n\nAnswer:"
-  │
-  ├─ [PASO 6] llm.generate(prompt)  [async, timeout=120s]
-  │           → POST http://ollama:11434/api/generate
-  │           → {"model": "llama3.2:3b", "prompt": "...", "stream": false}
-  │           → Retorna response["response"]
-  │
-  └─ Return QueryResponse(
-         answer=generated_text,
-         sources=[SourceChunk(document_id, filename, chunk_index, text, score), ...]
-     )
+```mermaid
+flowchart TD
+    A["POST /api/v1/query\n{question, top_k}"] --> B{Validación Pydantic}
+    B -->|question vacío o > 1000 chars| E1["HTTP 422 Unprocessable Entity"]
+    B -->|top_k fuera de rango 1–20| E1
+    B -->|OK| P1["[1] embedder.embed_query(question)\nvector: list[float] · 384 dims"]
+    P1 --> Guard{colección vacía?}
+    Guard -->|sí| EMPTY["'No documents ingested yet'"]
+    Guard -->|no| P2["[2] chroma.query(embedding, n_results=min(top_k, size))\nHNSW cosine similarity\nRetorna: ids · documents · metadatas · distances"]
+    P2 --> P3["[3] Parsear resultados\nscore = 1.0 − cosine_distance"]
+    P3 --> P4["[4] doc_repo.get_by_id(uuid) por cada doc único\nfallback a filename de metadata si fue borrado"]
+    P4 --> P5["[5] llm.build_rag_prompt(question, chunks)\nSystem + Context separado por --- + Question"]
+    P5 --> P6["[6] llm.generate(prompt)\nPOST ollama:11434/api/generate · timeout=120s\nmodel: llama3.2:3b · stream: false"]
+    P6 -->|ConnectError / TimeoutException| E2["HTTP 503 Service Unavailable"]
+    P6 --> RESP["Return QueryResponse\nanswer + sources[SourceChunk(doc_id, filename, chunk_index, text, score)]"]
 ```
 
 ### Ejemplo de score de similitud
@@ -290,26 +220,29 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 Usan la nueva API `Mapped` + `mapped_column` de SQLAlchemy 2.0. Tipo `Uuid()` (no `postgresql.UUID`) para compatibilidad con SQLite en tests.
 
-```
-Document ──── id (UUID PK)
-           ├── filename
-           ├── file_type ─── CHECK IN ('pdf', 'txt')
-           ├── file_size
-           ├── total_chunks
-           ├── status ─────── CHECK IN ('processing', 'ready', 'error')
-           ├── error_msg
-           ├── created_at
-           ├── updated_at
-           └── chunks ──────── relationship → list[Chunk]  (cascade delete)
-
-Chunk ──────── id (UUID PK)
-           ├── document_id ─── FK → documents.id ON DELETE CASCADE
-           ├── chunk_index
-           ├── text
-           ├── token_count ──── aproximación: len(text.split())
-           ├── chroma_id ─────── UNIQUE — ID en ChromaDB
-           └── created_at
-                INDEX idx_chunks_document_id ON chunks(document_id)
+```mermaid
+erDiagram
+    DOCUMENTS {
+        UUID id PK
+        VARCHAR filename
+        VARCHAR file_type "CHECK IN (pdf, txt)"
+        INTEGER file_size
+        INTEGER total_chunks
+        VARCHAR status "CHECK IN (processing, ready, error)"
+        TEXT error_msg
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+    CHUNKS {
+        UUID id PK
+        UUID document_id FK
+        INTEGER chunk_index
+        TEXT text
+        INTEGER token_count "aprox len(text.split())"
+        VARCHAR chroma_id "UNIQUE — ID en ChromaDB"
+        TIMESTAMPTZ created_at
+    }
+    DOCUMENTS ||--o{ CHUNKS : "has (ON DELETE CASCADE)"
 ```
 
 **Repositorios** (`src/rag/db/repositories.py`):
@@ -606,13 +539,23 @@ CMD ["uvicorn", "rag.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### Redes y Comunicación
 
-```
-Host:8000   ──► app:8000      (FastAPI)
-Host:5432   ──► postgres:5432 (desarrollo local)
-Host:11434  ──► ollama:11434  (desarrollo local)
-
-app:*  ──► postgres:5432  (DATABASE_URL)
-app:*  ──► ollama:11434   (OLLAMA_URL)
+```mermaid
+graph LR
+    subgraph Host["Host (desarrollo local)"]
+        H1["localhost:8000"]
+        H2["localhost:5432"]
+        H3["localhost:11434"]
+    end
+    subgraph Docker["Docker Network — rag_network"]
+        App["app:8000\nFastAPI"]
+        PG["postgres:5432\nPostgreSQL 16"]
+        OL["ollama:11434\nOllama LLM"]
+    end
+    H1 -->|HTTP API| App
+    H2 -. dev only .-> PG
+    H3 -. dev only .-> OL
+    App -->|DATABASE_URL| PG
+    App -->|OLLAMA_URL| OL
 ```
 
 ---
@@ -712,12 +655,11 @@ Se elimina Postgres primero para aprovechar `ON DELETE CASCADE` en chunks. Chrom
 
 ### Pirámide de Tests
 
-```
-        ┌─────────────────────┐
-        │   Integration (14)  │  ← API completa, SQLite, servicios mockeados
-        ├─────────────────────┤
-        │     Unit (23)       │  ← Funciones puras, mocks de ST y Chroma
-        └─────────────────────┘
+```mermaid
+graph TD
+    I["Integration — 14 tests\nAPI completa · SQLite · servicios mockeados"]
+    U["Unit — 23 tests\nFunciones puras · mocks de ST y Chroma"]
+    I --> U
 ```
 
 ### Aislamiento
